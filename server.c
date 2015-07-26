@@ -4,12 +4,15 @@
 #include <string.h> // strdup
 #include <stdlib.h> // exit
 #include <unistd.h> // close
+#include <pthread.h> // pthread
 
 #define PORT 8085
 int sd = -1, client_sockfd = -1;
 
-void handle_request(int client)
+void * handle_request(void * arg)
 {
+    int client = *(int *)arg; // just copy, so client_sockfd can be reused
+    printf("client: %d \n", client);
     char buf[1024];
     sprintf(buf, "HTTP/1.1 200 OK\r\n");
     send(client, buf, strlen(buf), 0);
@@ -19,14 +22,25 @@ void handle_request(int client)
     send(client, buf, strlen(buf), 0);
     sprintf(buf, "<p>Welcome to my world!</p>\r\n");
     send(client, buf, strlen(buf), 0);
+//    sleep(10); // test for blocking
+    close(client); // should close it just here
+    return NULL;
 
 }
 int main(int argv, char *argc[])
 {
+    pthread_t tid;
+    
+    int port = PORT;
+    if(argv > 1)
+    {
+        port = atoi(argc[1]);
+    }
+
     struct sockaddr_in addr; // addr of server
     bzero(&addr, sizeof(addr)); // memset is also ok
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY); // any ipv4 available
     if((sd = socket(AF_INET, SOCK_STREAM, 0)) < 0) // attention: bracket
     {
@@ -43,7 +57,7 @@ int main(int argv, char *argc[])
         perror("listen failed");
         exit(1);
     }
-    printf("Listening to port: %d \n", PORT);
+    printf("Listening to port: %d \n", port);
     while(1)
     {
         if((client_sockfd = accept(sd, NULL, NULL))<0)
@@ -53,9 +67,13 @@ int main(int argv, char *argc[])
         }
         char *msg = strdup("hello\n");
         printf("%s", msg);
-        handle_request(client_sockfd);
+        if(pthread_create(&tid, NULL, handle_request, (void *)&client_sockfd)!=0)
+        {
+            perror("thread creation failed");
+            continue;
+        }
         printf("world!\n");
-        close(client_sockfd);
+        //close(client_sockfd); // terrible mistake
     }
 
     close(sd);
